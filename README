@@ -1,0 +1,7 @@
+https://mp.weixin.qq.com/s/i_bF6_77MxKqEy7-y7LQdQ
+data ：原始数据目录，http://faculty.neu.edu.cn/songkechen/zh_CN/zdylm/263270/list/
+  NEU-CLS :缺陷分类任务（纯图像）
+  NEU-DET：缺陷检测任务（带有标注的图像文件）
+dataset：coco格式数据集目录
+yolov5：https://github.com/ultralytics/yolov5
+preprocessor.py：将./data/NEU-DET/ANNOTATIONS中原始xml格式标签转换为./labels中的txt格式标签
