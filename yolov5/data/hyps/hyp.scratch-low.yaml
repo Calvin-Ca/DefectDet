@@ -7,11 +7,30 @@
 # 学习率与优化器相关
 lr0: 0.01 # initial learning rate (SGD=1E-2, Adam=1E-3)
 lrf: 0.01 # final OneCycleLR learning rate (lr0 * lrf)
+# 初始学习率 0.01，最终学习率 = lr0 × lrf = 0.0001。整个训练过程学习率衰减 100 倍。
+# 如果用 cosine scheduler，曲线是先缓降再快降再缓降；
+# 如果用默认的 linear scheduler，就是匀速从 0.01 线性降到 0.0001。
+
 momentum: 0.937 # SGD momentum/Adam beta1
+# 比经典值 0.9 稍高，意味着更强的历史梯度惯性，训练更平滑但对突然的梯度变化响应稍慢。
+# 这是 Ultralytics 团队经过大量实验调出的值。
+## Optimizer：optimizer.step(),用来更新模型参数，使损失函数最小化的算法
+### SGD（随机梯度下降）：w = w - lr * grad,简单但有两个问题：在平坦方向走得慢、在陡峭方向容易震荡
+### SGD + Momentum：v = m * v - lr * grad,w = w + v，引入"动量"，用历史梯度的指数加权平均来平滑更新方向。相当于给一个滚动的球加了惯性，能冲过局部平坦区，也减少了震荡
+### Adam（几乎是默认选择）：w = w - lr * m / (sqrt(v) + ε)，结合了Momentum，并自适应学习率，收敛快（梯度大学习率低，反之）
+
 weight_decay: 0.0005 # optimizer weight decay 5e-4
+# 标准的 L2 正则化强度，防止过拟合：min L(w)——> min L(w) + λ ||w||²,λ = weight_decay
+# 注意 train.py 里会根据实际 batch_size 做缩放：weight_decay *= batch_size * accumulate / 64，所以不管你用多大 batch，等效正则强度是一致的。
+
 warmup_epochs: 3.0 # warmup epochs (fractions ok)
 warmup_momentum: 0.8 # warmup initial momentum
 warmup_bias_lr: 0.1 # warmup initial bias lr
+# 前 3 个 epoch 做预热。
+# bias 的学习率从 0.1 线性降到 lr0（比较激进地先拉高 bias lr 帮模型快速找到大致方向），
+# momentum 初始值设置小：初始阶段梯度是很不靠谱的，如果太大，错误的方向会被记住
+# 这组配置的目的是让训练初期不至于因为随机初始化的大梯度导致发散。
+
 # 损失函数相关
 box: 0.05 # box loss gain
 cls: 0.5 # cls loss gain
@@ -22,6 +41,7 @@ iou_t: 0.20 # IoU training threshold
 anchor_t: 4.0 # anchor-multiple threshold
 # anchors: 3  # anchors per output layer (0 to ignore)
 fl_gamma: 0.0 # focal loss gamma (efficientDet default gamma=1.5)
+
 # 数据增强相关
 hsv_h: 0.015 # image HSV-Hue augmentation (fraction)
 hsv_s: 0.7 # image HSV-Saturation augmentation (fraction)

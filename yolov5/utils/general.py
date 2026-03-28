@@ -283,10 +283,12 @@ def init_seeds(seed=0, deterministic=False):
 
     See https://pytorch.org/docs/stable/notes/randomness.html
     """
+    # 固定所有来源的随机数（python、numpy...）
+    # deterministic（确定模式），强制固定计算路径用于精准的复现，但 GPU 会变慢
     random.seed(seed)
     np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
+    torch.manual_seed(seed)         # PyTorch CPU 随机
+    torch.cuda.manual_seed(seed)    # GPU 随机（当前卡）
     torch.cuda.manual_seed_all(seed)  # for Multi-GPU, exception safe
     # torch.backends.cudnn.benchmark = True  # AutoBatch problem https://github.com/ultralytics/yolov5/issues/9287
     if deterministic and check_version(torch.__version__, "1.12.0"):  # https://github.com/ultralytics/yolov5/pull/8213

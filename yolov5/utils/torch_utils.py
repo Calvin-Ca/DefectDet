@@ -93,10 +93,10 @@ def torch_distributed_zero_first(local_rank: int):
     process.
     """
     if local_rank not in [-1, 0]:
-        dist.barrier(device_ids=[local_rank])
+        dist.barrier(device_ids=[local_rank]) # 所有 非0rank 等待
     yield
     if local_rank == 0:
-        dist.barrier(device_ids=[0])
+        dist.barrier(device_ids=[0])    # 等待所有其他 rank 也执行到这里，保证所有进程同步离开 context
 
 
 def device_count():

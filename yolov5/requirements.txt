@@ -7,11 +7,11 @@ matplotlib>=3.3
 numpy>=1.23.5
 opencv-python>=4.1.1
 pillow>=10.3.0
-psutil  # system resources
+psutil  # system resources,获取 CPU/内存（性能监控）
 PyYAML>=5.3.1
 requests>=2.32.2
 scipy>=1.4.1
-thop>=0.1.1  # FLOPs computation
+thop>=0.1.1  # FLOPs computation,浮点数计算，模型复杂度分析
 torch>=1.8.0  # see https://pytorch.org/get-started/locally (recommended)
 torchvision>=0.9.0
 tqdm>=4.66.3
@@ -20,8 +20,8 @@ ultralytics>=8.2.64  # https://ultralytics.com
 
 # Logging ---------------------------------------------------------------------
 # tensorboard>=2.4.1
-# clearml>=1.2.0
-# comet
+# clearml>=1.2.0  # 实验管理 + pipeline
+# comet   # 实验追踪
 
 # Plotting --------------------------------------------------------------------
 pandas>=1.1.4
@@ -40,12 +40,12 @@ seaborn>=0.11.0
 
 # Deploy ----------------------------------------------------------------------
 packaging  # Migration of deprecated pkg_resources packages
-setuptools>=70.0.0 # Snyk vulnerability fix
-# tritonclient[all]~=2.24.0
+setuptools>=70.0.0 # Snyk vulnerability fix # Python 打包工具（安装/构建）
+# tritonclient[all]~=2.24.0  # 对接 NVIDIA Triton Inference Server
 
 # Extras ----------------------------------------------------------------------
 # ipython  # interactive notebook
 # mss  # screenshots
-# albumentations>=1.0.3
+# albumentations>=1.0.3   #高级数据增强（比 torchvision 强）
 # pycocotools>=2.0.6  # COCO mAP
 urllib3>=2.6.0 ; python_version > "3.8" # not directly required, pinned by Snyk to avoid a vulnerability

@@ -13,7 +13,7 @@ Models:     https://github.com/ultralytics/yolov5/tree/master/models
 Datasets:   https://github.com/ultralytics/yolov5/tree/master/data
 Tutorial:   https://docs.ultralytics.com/yolov5/tutorials/train_custom_data
 """
-
+# python包
 import argparse
 import math
 import os
@@ -25,27 +25,21 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
 
-try:
-    import comet_ml  # must be imported before torch (if installed),机器学习实验管理 / 训练可视化工具
-except ImportError:
-    comet_ml = None
-
+# DL包
 import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn as nn
 import yaml
 from torch.optim import lr_scheduler
-from tqdm import tqdm # 进度条
-
-FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0]  # YOLOv5 root directory
-if str(ROOT) not in sys.path:
-    sys.path.append(str(ROOT))  # add ROOT to PATH
-ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
-
 from ultralytics.utils.patches import torch_load
+from tqdm import tqdm # 进度条
+try:
+    import comet_ml  # must be imported before torch (if installed),机器学习实验管理 / 训练可视化工具
+except ImportError:
+    comet_ml = None
 
+# 本地包导入
 import val as validate  # for end-of-epoch mAP
 from models.experimental import attempt_load
 from models.yolo import Model
@@ -96,12 +90,54 @@ from utils.torch_utils import (
     torch_distributed_zero_first,
 )
 
-# LOCAL_RANK表示当前进程在本机上的编号（多机多卡时RANK（全局编号） = LOCAL_RANK + n × GPU/机）
-LOCAL_RANK = int(os.getenv("LOCAL_RANK", -1))  # https://pytorch.org/docs/stable/elastic/run.html
-RANK = int(os.getenv("RANK", -1))              # 表示当前进程在分布式训练中的身份编号,-1为非分布式训练,0主进程,其它为从进程
-WORLD_SIZE = int(os.getenv("WORLD_SIZE", 1))    # 表示全局进程总数
-GIT_INFO = check_git_info()
+# 项目目录设置
+FILE = Path(__file__).resolve()
+ROOT = FILE.parents[0]  # YOLOv5 root directory
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))  # add ROOT to PATH
+ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
+# caic added
+def launch_tensorboard(logdir=f"{ROOT}/runs", port=6006, host="0.0.0.0"):
+    """
+    启动 TensorBoard（非阻塞）
+
+    Args:
+        logdir (str): 日志目录
+        port (int): 端口
+        host (str): 监听地址
+    """
+    import subprocess
+    import socket   
+
+    # 检查端口是否占用
+    def port_in_use(p):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            return s.connect_ex(("127.0.0.1", p)) == 0
+
+    if port_in_use(port):
+        print(f"[TensorBoard] port {port} already in use, skip start.")
+        return
+
+    cmd = [
+        sys.executable, "-m", "tensorboard.main",
+        "--logdir", logdir,
+        "--host", host,
+        "--port", str(port),
+    ]
+
+    subprocess.Popen(cmd)
+    print(f"[TensorBoard] started at http://{host}:{port} (logdir={logdir})")
+launch_tensorboard()
+# caic added
+
+# LOCAL_RANK表示当前进程在本机上的编号（多机多卡时 RANK（全局编号） = LOCAL_RANK + n × GPU/机）
+LOCAL_RANK = int(os.getenv("LOCAL_RANK", -1))   # https://pytorch.org/docs/stable/elastic/run.html
+RANK = int(os.getenv("RANK", -1))               # 表示当前进程在分布式训练中的身份编号,-1为非分布式训练,0主进程,其它为从进程
+WORLD_SIZE = int(os.getenv("WORLD_SIZE", 1))    # 表示全局进程总数
+
+# Git设置
+GIT_INFO = check_git_info()
 
 def train(hyp, opt, device, callbacks):
     """Train a YOLOv5 model on a custom dataset using specified hyperparameters, options, and device, managing datasets,
@@ -137,32 +173,36 @@ def train(hyp, opt, device, callbacks):
     Notes:
         Models and datasets download automatically from the latest YOLOv5 release.
     """
-    # single_cls是否把多类别任务当作单类别训练
-    # cfg模型结构配置
+    # single_cls 是否把多类别任务当作单类别训练
+    # cfg 模型结构配置
     # noval 是否跳过验证
     # nosave 是否保存权重
-    # 冻结网络前 N 层
+    # freeze 冻结网络前 N 层
     save_dir, epochs, batch_size, weights, single_cls, evolve, data, cfg, resume, noval, nosave, workers, freeze = (
-        Path(opt.save_dir),
+        Path(opt.save_dir),  # 训练过程文件保存位置
         opt.epochs,
         opt.batch_size,
-        opt.weights,
-        opt.single_cls,
+        opt.weights,    
+        # yolov5.pt：训练快照 包括dict_keys(['epoch', 'best_fitness', 'model', 'ema', 'updates', 'optimizer', 'wandb_id', 'date'])
+        ## 'best_fitness'：模型“综合性能评分”，用它做 best.pt 选择标准，fitness = weighted(P, R, mAP@0.5, mAP@0.5:0.95)
+        ## "ema": θ_ema=α*θ_ema+(1-α)*θ_t,在训练过程中维护一个 经历史数据平滑过 的权重，获得更好的推理效果
+        ## 'optimizer'：断点续传
+        opt.single_cls,  # 开启后多分类问题转换为检测到有没有问题
         opt.evolve,
-        opt.data,
+        opt.data,     # 数据集路径
         opt.cfg,
         opt.resume,
-        opt.noval,
+        opt.noval,   # no validation
         opt.nosave,
         opt.workers,
-        opt.freeze,
+        opt.freeze,  # 冻结层数：List[int]，微调时冻结 backbone 前几层例如 opt.freeze = [10] 
     )
     callbacks.run("on_pretrain_routine_start")
 
     # Directories
     w = save_dir / "weights"  # weights dir
     (w.parent if evolve else w).mkdir(parents=True, exist_ok=True)  # make dir
-    last, best = w / "last.pt", w / "best.pt"
+    last, best = w / "last.pt", w / "best.pt"  # 最后一个epoch训练的权重未必是最好的：训练过程中，模型可能在训练集上过拟合或在某些 batch 上调整权重，使得验证集性能暂时下降
 
     # Hyperparameters
     if isinstance(hyp, str):
@@ -178,7 +218,7 @@ def train(hyp, opt, device, callbacks):
 
     # Loggers
     data_dict = None
-    if RANK in {-1, 0}:
+    if RANK in {-1, 0}:  # -1:非分布式训练，0：分布式训练主进程
         include_loggers = list(LOGGERS)
         if getattr(opt, "ndjson_console", False):
             include_loggers.append("ndjson_console")
@@ -199,6 +239,9 @@ def train(hyp, opt, device, callbacks):
             callbacks.register_action(k, callback=getattr(loggers, k))
 
         # Process custom dataset artifact link
+        # artifact(制品)，1个“带版本管理的训练资源包”，通常存放在云端（如 Weights & Biases），用于可复现训练
+        # 在机器学习系统中：model weights、dataset、config（yaml）、evaluation results
+        # 这些都可以被打包成artifact(制品)，用于复现
         data_dict = loggers.remote_dataset
         if resume:  # If resuming runs from remote artifact
             weights, epochs, hyp, batch_size = opt.weights, opt.epochs, opt.hyp, opt.batch_size
@@ -206,8 +249,8 @@ def train(hyp, opt, device, callbacks):
     # Config
     plots = not evolve and not opt.noplots  # create plots
     cuda = device.type != "cpu"
-    init_seeds(opt.seed + 1 + RANK, deterministic=True)
-    with torch_distributed_zero_first(LOCAL_RANK):
+    init_seeds(opt.seed + 1 + RANK, deterministic=True) # 设置 seed 就是固定这些随机数生成器的起点，让每次运行产生相同的随机序列，从而实现结果可复现。
+    with torch_distributed_zero_first(LOCAL_RANK): # 避免多卡重复下载/解析数据，只有rank0下载，其它等待
         data_dict = data_dict or check_dataset(data)  # check if None
     train_path, val_path = data_dict["train"], data_dict["val"]
     nc = 1 if single_cls else int(data_dict["nc"])  # number of classes
@@ -218,8 +261,8 @@ def train(hyp, opt, device, callbacks):
     check_suffix(weights, ".pt")  # check weights
     pretrained = weights.endswith(".pt")
     if pretrained:
-        with torch_distributed_zero_first(LOCAL_RANK):
-            weights = attempt_download(weights)  # download if not found locally
+        with torch_distributed_zero_first(LOCAL_RANK): 
+            weights = attempt_download(weights)  # download if not found locally # 预训练的yolov5权重
         ckpt = torch_load(weights, map_location="cpu")  # load checkpoint to CPU to avoid CUDA memory leak
         model = Model(cfg or ckpt["model"].yaml, ch=3, nc=nc, anchors=hyp.get("anchors")).to(device)  # create
         # 不加载的参数
@@ -263,7 +306,6 @@ def train(hyp, opt, device, callbacks):
     if opt.cos_lr:
         lf = one_cycle(1, hyp["lrf"], epochs)  # cosine 1->hyp['lrf']
     else:
-
         def lf(x):
             """Linear learning rate scheduler function with decay calculated by epoch proportion."""
             return (1 - x / epochs) * (1.0 - hyp["lrf"]) + hyp["lrf"]  # linear
@@ -294,6 +336,8 @@ def train(hyp, opt, device, callbacks):
     if opt.sync_bn and cuda and RANK != -1:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model).to(device)
         LOGGER.info("Using SyncBatchNorm()")
+        # DataParallel：每次forward时把batch切分到各卡，各卡独立向前，再把输出汇总到主卡计算loss和反向传播,更新参数后再广播到其它卡
+        #导致主卡负载不均衡，显存会比其它卡高；单进程，多线程，受GIL限制真正的并行；通信效率比DDP的allreduce慢
 
     # Trainloader
     train_loader, dataset = create_dataloader(
@@ -343,7 +387,7 @@ def train(hyp, opt, device, callbacks):
 
         callbacks.run("on_pretrain_routine_end", labels, names)
 
-    # DDP mode
+    # DDP mode:Distributed DataParallel
     if cuda and RANK != -1:
         model = smart_DDP(model)
 
@@ -361,6 +405,8 @@ def train(hyp, opt, device, callbacks):
     # Start training
     t0 = time.time()
     nb = len(train_loader)  # number of batches
+    # warmup 的作用是：在训练初期降低学习率，让模型在“梯度不稳定阶段”平稳进入优化轨道，避免发散。
+    # 作用的参数主要有：学习率、动量（历史梯度的某种平均，用来加速正确方向、抑制震荡）、Bias
     nw = max(round(hyp["warmup_epochs"] * nb), 100)  # number of warmup iterations, max(3 epochs, 100 iterations)
     # nw = min(nw, (epochs - start_epoch) / 2 * nb)  # limit warmup to < 1/2 of training
     last_opt_step = -1
@@ -378,10 +424,19 @@ def train(hyp, opt, device, callbacks):
         f"Starting training for {epochs} epochs..."
     )
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
+        # 模型切换到训练模式
+        # 类别重采样（长尾优化），map低的类别被更多采样；随机改变每个epoch的数据读取顺序
+        # 梯度清 0
+        ## 按 batch训练：warmup、数据增强、前向传播、反向传播、梯度累积/更新、ema更新
+        # 学习率、参数更新
+        # 通过map评估、计算fitness
+        # 连续 N 轮fitness不提升，早停
+        # 记录日志，保存checkpoint
         callbacks.run("on_train_epoch_start")
-        model.train()
+        model.train()   # Dropout（随机丢弃神经元）打开，BatchNorm打开，注意这里BN是作用于 Channel
 
         # Update image weights (optional, single-GPU only)
+        # 让 map 低的类别被更多地采样到
         if opt.image_weights:
             cw = model.class_weights.cpu().numpy() * (1 - maps) ** 2 / nc  # class weights
             iw = labels_to_image_weights(dataset.labels, nc=nc, class_weights=cw)  # image weights
@@ -392,8 +447,13 @@ def train(hyp, opt, device, callbacks):
         # dataset.mosaic_border = [b - imgsz, -b]  # height, width borders
 
         mloss = torch.zeros(3, device=device)  # mean losses
+        
+        # 在 DDP 中，DataLoader 通常是：DistributedSampler(dataset)
+        # 把数据集 均匀切分到每个 GPU,每个进程只读自己那一份数据
+        # 设置随机种子，使 shuffle 在每个 epoch 变化,也就是每个epoch看到数据的顺序不同
         if RANK != -1:
             train_loader.sampler.set_epoch(epoch)
+            
         pbar = enumerate(train_loader)
         LOGGER.info(("\n" + "%11s" * 7) % ("Epoch", "GPU_mem", "box_loss", "obj_loss", "cls_loss", "Instances", "Size"))
         if RANK in {-1, 0}:
@@ -416,6 +476,8 @@ def train(hyp, opt, device, callbacks):
                         x["momentum"] = np.interp(ni, xi, [hyp["warmup_momentum"], hyp["momentum"]])
 
             # Multi-scale
+            # 每个 batch 随机选一个输入尺寸（0.5x 到 1.5x），强制对齐到 stride（gs，通常 32）的倍数。
+            # 这是一种数据增强，让模型学会在不同分辨率下检测目标。
             if opt.multi_scale:
                 sz = random.randrange(int(imgsz * 0.5), int(imgsz * 1.5) + gs) // gs * gs  # size
                 sf = sz / max(imgs.shape[2:])  # scale factor
@@ -436,10 +498,14 @@ def train(hyp, opt, device, callbacks):
             scaler.scale(loss).backward()
 
             # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html
+            # 不是每个 batch 都更新参数，而是累积 accumulate 个 batch 的梯度后才做一次 step。
+            # 这等效于用更大的 batch size 训练但不需要更多显存。
+            # scaler 是 AMP 的 GradScaler，处理 FP16 的梯度缩放防止下溢。
+            # EMA 在每次参数更新后更新指数移动平均模型。
             if ni - last_opt_step >= accumulate:
-                scaler.unscale_(optimizer)  # unscale gradients
+                scaler.unscale_(optimizer)  # unscale gradients、降低梯度（之前被放大了）
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)  # clip gradients
-                scaler.step(optimizer)  # optimizer.step
+                scaler.step(optimizer)  # optimizer.step，参数更新
                 scaler.update()
                 optimizer.zero_grad()
                 if ema:
@@ -461,7 +527,7 @@ def train(hyp, opt, device, callbacks):
 
         # Scheduler
         lr = [x["lr"] for x in optimizer.param_groups]  # for loggers
-        scheduler.step()
+        scheduler.step()  # 更新学习率
 
         if RANK in {-1, 0}:
             # mAP
@@ -661,6 +727,7 @@ def main(opt, callbacks=Callbacks()):
         For detailed usage, refer to:
         https://github.com/ultralytics/yolov5/tree/master/models
     """
+    # 是否分布式训练
     if RANK in {-1, 0}:
         print_args(vars(opt))
         check_git_status()
@@ -683,7 +750,7 @@ def main(opt, callbacks=Callbacks()):
         if is_url(opt_data):
             opt.data = check_file(opt_data)  # avoid HUB resume auth timeout
     else:
-        opt.data, opt.cfg, opt.hyp, opt.weights, opt.project = (
+        opt.data, opt.cfg, opt.hyp, opt.weights, opt.project = (    # 数据标签类别，配置文件（数据增强、学习率、损失函数等），训练相关超参数
             check_file(opt.data),
             check_yaml(opt.cfg),
             check_yaml(opt.hyp),
@@ -699,7 +766,7 @@ def main(opt, callbacks=Callbacks()):
             opt.name = Path(opt.cfg).stem  # use model.yaml as name
         opt.save_dir = str(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))
 
-    # DDP mode
+    # DDP mode，Distributed Data Parallel
     device = select_device(opt.device, batch_size=opt.batch_size)
     if LOCAL_RANK != -1:
         msg = "is not compatible with YOLOv5 Multi-GPU DDP training"
