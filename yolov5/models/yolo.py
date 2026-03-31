@@ -160,6 +160,15 @@ class BaseModel(nn.Module):
 
     def _forward_once(self, x, profile=False, visualize=False):
         """Performs a forward pass on the YOLOv5 model, enabling profiling and feature visualization options."""
+        # [Batch_size, Anchor_num, H, W, 5+C], 
+        # [2, 1, 10, 15]代表 当前batch中第2张图像 在索引为(10, 15)的grid位置处 预测尺寸等于第1个锚框
+        # 5+C 代表在上述基础上 微调 位置中心点、包围框宽高得到预测框；obj代表有目标的概率，C代表类别数
+        
+        # Anchor_num 代表每个grid预测3个锚框, 5 包含 x, y(中心点偏移),w, h(宽高), obj(目标置信度)
+        # anchor是框模板,决定用哪种形状预测，grid是位置网格，决定在哪个位置预测
+
+        # 锚框是预定义好尺寸的框，实际预测的包围框大小在这个基础上微调
+        # yolov5默认：P3 (80×80): [(10,13), (16,30), (33,23)]   P4 (40×40):[(30,61), (62,45), (59,119)]   P5 (20×20):[(116,90), (156,198), (373,326)]
         y, dt = [], []  # outputs
         for m in self.model:
             if m.f != -1:  # if not from previous layer

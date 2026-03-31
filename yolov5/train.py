@@ -488,6 +488,9 @@ def train(hyp, opt, device, callbacks):
             # Forward
             with torch.cuda.amp.autocast(amp):
                 pred = model(imgs)  # forward
+                # target:[N, 6],N = 当前 batch 中所有标注框的总数（所有图片加起来），
+                # 每一行代表一个目标框：image_index, class, x, y, w, h
+                # image_index代表属于 batch 中的图编号索引
                 loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
                 if RANK != -1:
                     loss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
